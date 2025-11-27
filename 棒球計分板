@@ -1,0 +1,1253 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { 
+  Trophy, Activity, RotateCcw, Table, ShieldAlert, UserPlus, Users, 
+  ClipboardList, PlayCircle, Plus, Trash2, ChevronLeft, ChevronRight, 
+  Filter, Layers, Undo2, Download, MousePointerClick, FileDown,
+  ArrowRightLeft, Target, Disc, Timer, Save, Medal, CheckCircle,
+  FastForward, AlertTriangle, XCircle, Footprints, UserMinus, RefreshCw,
+  Dumbbell, Swords, X, ChevronDown, ArrowUp, UserCog, MoveRight, AlertOctagon,
+  Eye, EyeOff, Keyboard, Palette, Shield, Home
+} from 'lucide-react';
+
+// --- Helper Functions ---
+const isPitcher = (pos) => ['P', 'SP', 'RP', 'CP'].includes(pos);
+const getPosName = (num) => {
+    const map = { '1': 'P', '2': 'C', '3': '1B', '4': '2B', '5': '3B', '6': 'SS', '7': 'LF', '8': 'CF', '9': 'RF' };
+    return map[num] || '';
+};
+
+// --- 1. 輔助組件：投球計時器 ---
+const PitchClock = ({ bases }) => {
+  const [timeLeft, setTimeLeft] = useState(null);
+  const [isActive, setIsActive] = useState(false);
+  const defaultTime = bases.some(b => b !== null) ? 20 : 15;
+
+  useEffect(() => {
+    let interval = null;
+    if (isActive && timeLeft > 0) {
+      interval = setInterval(() => setTimeLeft(p => p - 1), 1000);
+    } else if (timeLeft === 0) {
+      setIsActive(false);
+    }
+    return () => clearInterval(interval);
+  }, [isActive, timeLeft]);
+
+  useEffect(() => {
+    setIsActive(false);
+    setTimeLeft(null);
+  }, [bases]); 
+
+  return (
+    <div className="bg-slate-800 p-2 rounded-lg border border-slate-700 flex items-center justify-between gap-2 shadow-inner mb-2">
+      <div className="flex items-center gap-2">
+        <Timer size={14} className="text-slate-400" />
+        <span className="text-[10px] font-bold text-slate-400 uppercase">投球計時</span>
+      </div>
+      <div className="flex items-center gap-2">
+        <div className={`text-lg font-mono font-black w-8 text-center ${timeLeft === 0 ? 'text-red-500 animate-pulse' : timeLeft <= 5 ? 'text-orange-400' : 'text-white'}`}>
+          {timeLeft === null ? '--' : timeLeft}
+        </div>
+        <button onClick={() => { setTimeLeft(defaultTime); setIsActive(true); }} className="bg-blue-600 hover:bg-blue-500 text-white text-[10px] px-2 py-1 rounded">START</button>
+        <button onClick={() => { setIsActive(false); setTimeLeft(null); }} className="bg-slate-700 hover:bg-slate-600 text-slate-300 text-[10px] px-2 py-1 rounded">RESET</button>
+      </div>
+    </div>
+  );
+};
+
+// --- 2. 輔助組件：換人選單 ---
+const SubstitutionModal = ({ teamName, roster, role, currentId, onConfirm, onClose }) => {
+    const [showAll, setShowAll] = useState(false);
+
+    const filteredRosterWithIndex = roster
+        .map((player, index) => ({ ...player, originalIndex: index }))
+        .filter(player => {
+            if (showAll) return true;
+            const playerIsPitcher = isPitcher(player.pos);
+            if (role === 'pitcher') return playerIsPitcher; 
+            return !playerIsPitcher; 
+        });
+
+    return (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[60] p-4 backdrop-blur-sm animate-in fade-in zoom-in duration-200">
+            <div className="bg-slate-800 p-0 rounded-xl border border-slate-600 w-full max-w-sm shadow-2xl overflow-hidden flex flex-col max-h-[80vh]">
+                <div className="p-4 border-b border-slate-700 bg-slate-900/50 flex justify-between items-center">
+                    <h3 className="text-white font-bold flex items-center gap-2">
+                        <UserCog size={20} className="text-blue-400"/> 
+                        更換{role === 'batter' ? '打者' : '投手'}
+                    </h3>
+                    <button onClick={onClose}><X size={20} className="text-slate-400 hover:text-white"/></button>
+                </div>
+                
+                <div className="p-2 bg-slate-800 border-b border-slate-700 flex justify-between items-center px-4">
+                    <span className="text-xs text-slate-400">{teamName}</span>
+                    <button 
+                        onClick={() => setShowAll(!showAll)}
+                        className="flex items-center gap-1 text-xs text-blue-300 hover:text-blue-200"
+                    >
+                        {showAll ? <EyeOff size={12}/> : <Eye size={12}/>}
+                        {showAll ? '依位置篩選' : '顯示全部球員'}
+                    </button>
+                </div>
+
+                <div className="flex-1 overflow-y-auto p-2 space-y-1">
+                    {filteredRosterWithIndex.length === 0 && (
+                        <div className="text-center text-slate-500 py-8 text-sm">
+                            沒有符合條件的球員<br/>
+                            <button onClick={() => setShowAll(true)} className="text-blue-400 underline mt-2">顯示全部</button>
+                        </div>
+                    )}
+                    {filteredRosterWithIndex.map((player) => {
+                        const isActive = player.id === currentId;
+                        const isPitcherPos = isPitcher(player.pos);
+                        return (
+                            <button 
+                                key={player.id} 
+                                onClick={() => onConfirm(player.originalIndex)} 
+                                className={`w-full flex items-center justify-between p-3 rounded-lg border transition active:scale-95 ${isActive ? 'bg-blue-900/40 border-blue-500 ring-1 ring-blue-500' : 'bg-slate-700/50 border-slate-600 hover:bg-slate-700'}`}
+                            >
+                                <div className="flex items-center gap-3">
+                                    <span className={`font-mono font-bold w-6 text-right ${isActive ? 'text-blue-300' : 'text-slate-400'}`}>{player.number}</span>
+                                    <span className={`font-bold ${isActive ? 'text-white' : 'text-slate-200'}`}>{player.name}</span>
+                                </div>
+                                <span className={`text-xs px-2 py-1 rounded ${isPitcherPos ? 'bg-orange-900/40 text-orange-300' : 'bg-slate-600 text-slate-300'}`}>
+                                    {player.pos}
+                                </span>
+                            </button>
+                        );
+                    })}
+                </div>
+            </div>
+        </div>
+    );
+};
+
+// --- 4. 輔助組件：壘包操作選單 ---
+const BaseActionModal = ({ baseIndex, runner, onClose, onAction, roster }) => {
+  const baseName = ['一壘', '二壘', '三壘'][baseIndex];
+  const [selectedPlayerId, setSelectedPlayerId] = useState('');
+
+  const handlePlaceRunner = () => {
+    if (!selectedPlayerId) {
+        // 修正 ID 生成，避免重複
+        onAction('place_runner', { name: '跑者', number: 'R', id: Date.now() + Math.random() });
+    } else {
+        const player = roster.find(p => p.id.toString() === selectedPlayerId);
+        onAction('place_runner', player);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[60] p-4 backdrop-blur-sm animate-in fade-in zoom-in duration-200">
+      <div className="bg-slate-800 p-5 rounded-xl border border-slate-600 w-full max-w-xs shadow-2xl relative">
+        <button onClick={onClose} className="absolute top-3 right-3 text-slate-400 hover:text-white"><X size={20}/></button>
+        <div className="text-center mb-6">
+            <h3 className="text-white font-bold text-lg">{baseName}狀態</h3>
+            {runner ? (
+                <div className="text-blue-400 font-mono font-bold text-xl mt-1 bg-blue-900/30 py-1 rounded border border-blue-500/30">{runner.number} {runner.name}</div>
+            ) : (
+                <div className="text-slate-500 italic mt-1">目前無人</div>
+            )}
+        </div>
+        <div className="grid grid-cols-1 gap-3">
+          {runner ? (
+            <>
+              <button onClick={() => onAction('advance')} className="w-full bg-indigo-600 hover:bg-indigo-500 text-white py-3 rounded-lg font-bold flex items-center justify-center gap-2 shadow-lg border border-indigo-500 mb-2">
+                  <ArrowUp size={20}/> 推進一個壘包
+              </button>
+              <div className="grid grid-cols-2 gap-2">
+                <button onClick={() => onAction('sb')} className="bg-green-600 hover:bg-green-500 text-white py-3 rounded-lg font-bold flex flex-col items-center justify-center gap-1 text-xs border border-green-500 shadow-lg"><Footprints size={18}/> 盜壘成功</button>
+                <button onClick={() => onAction('cs')} className="bg-red-600 hover:bg-red-500 text-white py-3 rounded-lg font-bold flex flex-col items-center justify-center gap-1 text-xs border border-red-500 shadow-lg"><XCircle size={18}/> 盜壘失敗</button>
+                <button onClick={() => onAction('pickoff')} className="bg-orange-700 hover:bg-orange-600 text-white py-2 rounded-lg font-bold flex flex-col items-center justify-center gap-1 text-xs border border-orange-600"><Target size={16}/> 牽制出局</button>
+                <button onClick={() => onAction('pr')} className="bg-slate-600 hover:bg-slate-500 text-white py-2 rounded-lg font-bold flex flex-col items-center justify-center gap-1 text-xs border border-slate-500"><ArrowRightLeft size={16}/> 換代跑</button>
+              </div>
+              <button onClick={() => onAction('remove')} className="bg-slate-800 border border-slate-500 hover:bg-slate-700 text-slate-300 py-3 rounded-lg text-xs flex items-center justify-center gap-2 transition"><UserMinus size={16}/> 僅移除跑者 (得分/修正)</button>
+            </>
+          ) : (
+            <div className="space-y-3">
+                <div className="text-xs text-slate-400 mb-1">選擇球員上壘 (代跑/修正)：</div>
+                <select 
+                    className="w-full bg-slate-900 border border-slate-600 rounded p-2 text-white text-sm"
+                    value={selectedPlayerId}
+                    onChange={(e) => setSelectedPlayerId(e.target.value)}
+                >
+                    <option value="">-- 選擇球員 --</option>
+                    {roster && roster.map(p => (
+                        <option key={p.id} value={p.id}>#{p.number} {p.name}</option>
+                    ))}
+                </select>
+                <button onClick={handlePlaceRunner} className="w-full bg-blue-600 hover:bg-blue-500 text-white py-3 rounded-lg font-bold flex items-center justify-center gap-2 shadow-lg"><UserPlus size={18}/> 確認放置</button>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// --- 5. 輔助組件：守備位置選擇器 ---
+const FielderSelector = ({ onSelect, onCancel, title = "守備位置" }) => {
+  const positions = [{ num: '1', name: 'P' }, { num: '2', name: 'C' }, { num: '3', name: '1B' }, { num: '4', name: '2B' }, { num: '5', name: '3B' }, { num: '6', name: 'SS' }, { num: '7', name: 'LF' }, { num: '8', name: 'CF' }, { num: '9', name: 'RF' }];
+  return (
+    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[60] p-4 backdrop-blur-sm">
+      <div className="bg-slate-800 p-6 rounded-xl shadow-2xl border border-slate-600 w-full max-w-sm">
+        <h3 className="text-white font-bold text-lg mb-4 text-center">{title}</h3>
+        <div className="grid grid-cols-3 gap-3 mb-4">
+          {positions.map(p => (
+            <button key={p.num} onClick={() => onSelect(p.num)} className="bg-slate-700 hover:bg-blue-600 text-white py-3 rounded-lg font-bold border border-slate-600 transition flex flex-col items-center justify-center group">
+              <span className="text-xl group-hover:scale-110 transition">{p.num}</span>
+              <span className="text-[10px] text-slate-400">{p.name}</span>
+            </button>
+          ))}
+        </div>
+        <button onClick={onCancel} className="w-full py-3 bg-slate-600 hover:bg-slate-500 text-white rounded-lg font-bold">取消</button>
+      </div>
+    </div>
+  );
+};
+
+// --- 6. 輔助組件：賽後結算 ---
+const GameSummaryModal = ({ scores, teams, rosters, onSave, onClose }) => {
+  const [decisions, setDecisions] = useState({ win: '', loss: '', save: '', mvp: '' });
+  
+  const getAllPitchers = () => {
+    const all = [];
+    ['away', 'home'].forEach(teamKey => {
+      rosters[teamKey].forEach(p => {
+        if (['P', 'SP', 'RP', 'CP'].includes(p.pos) || (p.pitching && (p.pitching.np > 0 || p.pitching.ip > 0))) {
+          all.push({ ...p, team: teamKey === 'away' ? teams.away : teams.home });
+        }
+      });
+    });
+    return all;
+  };
+
+  const getAllPlayers = () => {
+    const all = [];
+    ['away', 'home'].forEach(teamKey => {
+        rosters[teamKey].forEach(p => all.push({ ...p, team: teamKey === 'away' ? teams.away : teams.home }));
+    });
+    return all;
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[60] p-4 backdrop-blur-md animate-in fade-in duration-300">
+      <div className="bg-slate-800 p-6 rounded-xl shadow-2xl border border-slate-600 w-full max-w-md max-h-[90vh] overflow-y-auto">
+        <div className="text-center mb-6">
+            <Trophy size={48} className="mx-auto text-yellow-400 mb-2" />
+            <h2 className="text-2xl font-bold text-white">比賽結束</h2>
+            <div className="text-4xl font-mono font-black my-2 flex justify-center items-center gap-4">
+                <span className={scores.away > scores.home ? 'text-yellow-400' : 'text-slate-400'}>{scores.away}</span>
+                <span className="text-xl text-slate-600">-</span>
+                <span className={scores.home > scores.away ? 'text-yellow-400' : 'text-slate-400'}>{scores.home}</span>
+            </div>
+        </div>
+        <div className="space-y-3 mb-6">
+            {['勝投', '敗投', '救援', 'MVP'].map((label, i) => {
+                const field = ['win', 'loss', 'save', 'mvp'][i];
+                const list = field === 'mvp' ? getAllPlayers() : getAllPitchers();
+                return (
+                    <div key={field}>
+                        <label className="block text-xs text-slate-400 mb-1">{label}</label>
+                        <select className="w-full bg-slate-700 text-white p-2 rounded border border-slate-600 text-sm" onChange={e => setDecisions({...decisions, [field]: e.target.value})}>
+                            <option value="">選擇球員</option>
+                            {list.map(p => <option key={p.id} value={p.name}>{p.name} ({p.team})</option>)}
+                        </select>
+                    </div>
+                )
+            })}
+        </div>
+        <div className="flex gap-2">
+            <button onClick={() => onSave(decisions)} className="flex-1 bg-blue-600 hover:bg-blue-500 text-white py-3 rounded-lg font-bold flex items-center justify-center gap-2"><Save size={18}/> 儲存並結束</button>
+            <button onClick={onClose} className="px-4 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg">返回</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// --- 8. 輔助組件：快捷鍵說明 ---
+const HotkeyHelpModal = ({ onClose }) => (
+    <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[70] p-4 backdrop-blur-sm animate-in fade-in zoom-in duration-200">
+        <div className="bg-slate-800 p-6 rounded-xl border border-slate-600 w-full max-w-sm shadow-2xl relative">
+            <button onClick={onClose} className="absolute top-3 right-3 text-slate-400 hover:text-white"><X size={20}/></button>
+            <h3 className="text-white font-bold text-lg mb-4 flex items-center gap-2"><Keyboard size={20}/> 鍵盤快捷鍵</h3>
+            <div className="grid grid-cols-2 gap-4 text-sm">
+                <div className="space-y-2">
+                    <div className="text-slate-400 text-xs uppercase font-bold border-b border-slate-700 pb-1 mb-2">投球判定</div>
+                    <div className="flex justify-between"><span className="text-white font-mono bg-slate-700 px-1.5 rounded">B</span> <span className="text-slate-300">壞球</span></div>
+                    <div className="flex justify-between"><span className="text-white font-mono bg-slate-700 px-1.5 rounded">S</span> <span className="text-slate-300">揮棒落空</span></div>
+                    <div className="flex justify-between"><span className="text-white font-mono bg-slate-700 px-1.5 rounded">K</span> <span className="text-slate-300">目送好球</span></div>
+                    <div className="flex justify-between"><span className="text-white font-mono bg-slate-700 px-1.5 rounded">F</span> <span className="text-slate-300">界外球</span></div>
+                </div>
+                <div className="space-y-2">
+                    <div className="text-slate-400 text-xs uppercase font-bold border-b border-slate-700 pb-1 mb-2">打擊結果</div>
+                    <div className="flex justify-between"><span className="text-white font-mono bg-slate-700 px-1.5 rounded">1</span> <span className="text-slate-300">一壘安打</span></div>
+                    <div className="flex justify-between"><span className="text-white font-mono bg-slate-700 px-1.5 rounded">2</span> <span className="text-slate-300">二壘安打</span></div>
+                    <div className="flex justify-between"><span className="text-white font-mono bg-slate-700 px-1.5 rounded">3</span> <span className="text-slate-300">三壘安打</span></div>
+                    <div className="flex justify-between"><span className="text-white font-mono bg-slate-700 px-1.5 rounded">4</span> <span className="text-slate-300">全壘打</span></div>
+                </div>
+            </div>
+            <div className="mt-4 pt-4 border-t border-slate-700 text-xs text-slate-500 text-center">
+                僅在「比賽 (Play)」分頁且無輸入框焦點時有效
+            </div>
+        </div>
+    </div>
+);
+
+// --- 9. 主應用程式 ---
+export default function App() {
+  const [currentView, setCurrentView] = useState('scorer');
+  const [boxScoreType, setBoxScoreType] = useState('batting');
+  const [rosterType, setRosterType] = useState('batter');
+  const [history, setHistory] = useState([]);
+
+  const [gameStarted, setGameStarted] = useState(false);
+  const [gameEnded, setGameEnded] = useState(false);
+  const [showSummary, setShowSummary] = useState(false); 
+  const [teams, setTeams] = useState({ away: 'LAD (道奇)', home: 'NYY (洋基)' });
+  const [teamColors, setTeamColors] = useState({ away: '#3b82f6', home: '#ef4444' }); // 新增：隊伍顏色
+  
+  const [rosters, setRosters] = useState({ away: [], home: [] });
+  const [newPlayer, setNewPlayer] = useState({ number: '', name: '', pos: '' });
+  const [activeRosterTeam, setActiveRosterTeam] = useState('away'); 
+  const [batterIndices, setBatterIndices] = useState({ away: 0, home: 0 });
+  const [pitcherIndices, setPitcherIndices] = useState({ away: 0, home: 0 });
+
+  const [showHotkeysHelp, setShowHotkeysHelp] = useState(false);
+  const [hitLocation, setHitLocation] = useState('內野');
+
+  const [activeBaseAction, setActiveBaseAction] = useState(null);
+  const [showFielderSelector, setShowFielderSelector] = useState({ show: false, mode: 'out' }); // 修改：支援模式 (out/error)
+  const [pendingOutType, setPendingOutType] = useState(null); 
+  const [showAdvanceModal, setShowAdvanceModal] = useState(false); // Keep for Wild Pitch logic
+  const [subModal, setSubModal] = useState({ isOpen: false, role: null });
+  
+  // Reset Confirm State
+  const [resetConfirmState, setResetConfirmState] = useState(false);
+
+  const [scores, setScores] = useState({ away: 0, home: 0 });
+  const [stats, setStats] = useState({ away: { hits: 0, errors: 0 }, home: { hits: 0, errors: 0 } });
+  const [lineScores, setLineScores] = useState({ away: {}, home: {} });
+
+  const [inning, setInning] = useState({ number: 1, isTop: true }); 
+  const [outs, setOuts] = useState(0);
+  const [balls, setBalls] = useState(0);
+  const [strikes, setStrikes] = useState(0);
+  const [pitchCount, setPitchCount] = useState(0); 
+  const [bases, setBases] = useState([null, null, null]); 
+  const [pitchSequence, setPitchSequence] = useState([]); 
+
+  const [logs, setLogs] = useState([]);
+  const logsEndRef = useRef(null);
+  const [logFilter, setLogFilter] = useState('all');
+
+  // --- Helper: Sanitize Player Data ---
+  const sanitizePlayer = (p) => ({
+    ...p,
+    ab: p.ab || 0, h: p.h || 0, r: p.r || 0, rbi: p.rbi || 0, bb: p.bb || 0, hbp: p.hbp || 0, so: p.so || 0, sf: p.sf || 0, sh: p.sh || 0, b1: p.b1 || 0, b2: p.b2 || 0, b3: p.b3 || 0, hr: p.hr || 0, sb: p.sb || 0, cs: p.cs || 0,
+    pitching: p.pitching || { ip: 0, h: 0, r: 0, er: 0, bb: 0, so: 0, np: 0 },
+    fielding: p.fielding || { po: 0, a: 0, e: 0 } // 新增：守備數據
+  });
+
+  // --- LocalStorage ---
+  useEffect(() => {
+    try {
+        const savedState = localStorage.getItem('baseball_scorer_v27_final');
+        if (savedState) {
+          const parsedState = JSON.parse(savedState);
+          if (parsedState && parsedState.gameStarted) {
+             if (parsedState.rosters && parsedState.scores) {
+                 if (parsedState.rosters.away) parsedState.rosters.away = parsedState.rosters.away.map(sanitizePlayer);
+                 if (parsedState.rosters.home) parsedState.rosters.home = parsedState.rosters.home.map(sanitizePlayer);
+                 if(!gameStarted && confirm('發現未完成的比賽紀錄，是否繼續？')) loadState(parsedState);
+             }
+          }
+        }
+    } catch (e) {
+        console.error("LocalStorage Error", e);
+        localStorage.removeItem('baseball_scorer_v27_final');
+    }
+  }, []);
+
+  useEffect(() => {
+    if (gameStarted) {
+      const currentState = {
+        scores, stats, lineScores, inning, outs, balls, strikes, 
+        bases, logs, rosters, batterIndices, pitcherIndices, gameStarted, gameEnded, teams, pitchSequence, teamColors
+      };
+      localStorage.setItem('baseball_scorer_v27_final', JSON.stringify(currentState));
+    }
+  }, [scores, stats, inning, outs, balls, strikes, bases, logs, rosters, batterIndices, pitcherIndices, gameStarted, gameEnded, teams, pitchSequence, teamColors]);
+
+  useEffect(() => {
+    if (logsEndRef.current && currentView === 'logs' && logFilter === 'all') {
+      logsEndRef.current.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [logs, currentView, logFilter]);
+
+  // --- Keyboard Hotkeys Effect ---
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement.tagName)) return;
+      if (currentView !== 'scorer' || gameEnded || !gameStarted) return;
+      const key = e.key.toLowerCase();
+      switch(key) {
+        case 'b': handleBall(); break;
+        case 's': handleStrike(false); break;
+        case 'k': handleStrike(true); break;
+        case 'f': handleFoul(); break;
+        case '1': handleHit(1); break;
+        case '2': handleHit(2); break;
+        case '3': handleHit(3); break;
+        case '4': handleHit(4); break;
+        default: break;
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  });
+
+  const loadState = (state) => {
+    if (!state) return;
+    setScores(state.scores || { away: 0, home: 0 });
+    setStats(state.stats || { away: { hits: 0, errors: 0 }, home: { hits: 0, errors: 0 } });
+    setLineScores(state.lineScores || { away: {}, home: {} });
+    setInning(state.inning || { number: 1, isTop: true });
+    setOuts(state.outs || 0);
+    setBalls(state.balls || 0);
+    setStrikes(state.strikes || 0);
+    setBases(state.bases || [null, null, null]);
+    setLogs(state.logs || []);
+    setRosters(state.rosters || { away: [], home: [] });
+    setBatterIndices(state.batterIndices || { away: 0, home: 0 });
+    setPitcherIndices(state.pitcherIndices || { away: 0, home: 0 });
+    setGameStarted(state.gameStarted || false);
+    setGameEnded(state.gameEnded || false);
+    setTeams(state.teams || { away: 'Guest', home: 'Home' });
+    setTeamColors(state.teamColors || { away: '#3b82f6', home: '#ef4444' });
+    setPitchSequence(state.pitchSequence || []);
+  };
+
+  const hardReset = () => {
+      localStorage.removeItem('baseball_scorer_v27_final');
+      window.location.reload();
+  };
+
+  // --- Logic Helpers ---
+  const saveHistory = () => {
+    const currentState = {
+      scores, stats, lineScores, inning, outs, balls, strikes, 
+      bases, logs, rosters, batterIndices, pitcherIndices, gameStarted, gameEnded, teams, pitchSequence, teamColors
+    };
+    setHistory(prev => [...prev.slice(-49), JSON.stringify(currentState)]);
+  };
+
+  const handleUndo = () => {
+    if (history.length === 0) return;
+    try {
+        const previousState = JSON.parse(history[history.length - 1]);
+        loadState(previousState);
+        setHistory(prev => prev.slice(0, -1));
+    } catch(e) { console.error(e); }
+  };
+
+  const updatePlayerStat = (teamKey, playerId, statChanges, type = 'batting') => {
+    setRosters(prev => ({
+      ...prev,
+      [teamKey]: prev[teamKey].map(p => {
+        if (p.id === playerId) {
+          const newStats = sanitizePlayer({ ...p }); 
+          Object.keys(statChanges).forEach(key => {
+            if (type === 'pitching') newStats.pitching[key] = (newStats.pitching[key] || 0) + statChanges[key];
+            else if (type === 'fielding') newStats.fielding[key] = (newStats.fielding[key] || 0) + statChanges[key];
+            else newStats[key] = (newStats[key] || 0) + statChanges[key];
+          });
+          return newStats;
+        }
+        return p;
+      })
+    }));
+  };
+
+  // 輔助：尋找特定守備位置的球員 (如果名單中有多個相同位置，取第一個)
+  const findFielderByPos = (teamKey, posNum) => {
+    const posName = getPosName(posNum);
+    // 簡單對應：名單中的 'SS' 對應 posNum '6'
+    // 投手 P/SP/RP 都視為 '1'
+    return rosters[teamKey].find(p => {
+        if (posNum === '1') return ['P', 'SP', 'RP', 'CP'].includes(p.pos);
+        return p.pos === posName;
+    });
+  };
+
+  const getCurrentPitcher = () => {
+    const defenseTeamKey = inning.isTop ? 'home' : 'away';
+    const index = pitcherIndices[defenseTeamKey];
+    const teamRoster = rosters[defenseTeamKey];
+    return (teamRoster && teamRoster.length > 0) ? teamRoster[index % teamRoster.length] : null;
+  };
+
+  const getCurrentBatter = () => {
+    const offenseTeamKey = inning.isTop ? 'away' : 'home';
+    const index = batterIndices[offenseTeamKey];
+    const teamRoster = rosters[offenseTeamKey];
+    return (teamRoster && teamRoster.length > 0) ? teamRoster[index % teamRoster.length] : null;
+  };
+
+  const advanceBatter = () => {
+    const teamKey = inning.isTop ? 'away' : 'home';
+    const teamRoster = rosters[teamKey];
+    if (!teamRoster || teamRoster.length === 0) return;
+    setBatterIndices(prev => ({ ...prev, [teamKey]: (prev[teamKey] + 1) % teamRoster.length }));
+  };
+
+  const substitutePlayer = (role, changeDirection) => {
+    const isTop = inning.isTop;
+    const teamKey = role === 'batter' ? (isTop ? 'away' : 'home') : (isTop ? 'home' : 'away');
+    const currentIndex = role === 'batter' ? batterIndices[teamKey] : pitcherIndices[teamKey];
+    const teamRoster = rosters[teamKey];
+    if (!teamRoster || teamRoster.length === 0) return;
+    let newIndex = currentIndex + changeDirection;
+    if (newIndex < 0) newIndex = teamRoster.length - 1;
+    if (newIndex >= teamRoster.length) newIndex = 0;
+    
+    if (role === 'batter') setBatterIndices(prev => ({ ...prev, [teamKey]: newIndex }));
+    else setPitcherIndices(prev => ({ ...prev, [teamKey]: newIndex }));
+  };
+
+  const openSubstitutionModal = (role) => {
+      setSubModal({ isOpen: true, role });
+  };
+
+  const handleSubstitutionConfirm = (originalIndex) => {
+      const role = subModal.role;
+      const isTop = inning.isTop;
+      const teamKey = role === 'batter' ? (isTop ? 'away' : 'home') : (isTop ? 'home' : 'away');
+      const teamRoster = rosters[teamKey];
+      const newPlayer = teamRoster[originalIndex];
+
+      saveHistory();
+      if (role === 'batter') setBatterIndices(prev => ({ ...prev, [teamKey]: originalIndex }));
+      else setPitcherIndices(prev => ({ ...prev, [teamKey]: originalIndex }));
+      
+      addLog(`更換${role === 'batter' ? '打者/代打' : '投手'}：${newPlayer.name}`, 'system');
+      setSubModal({ isOpen: false, role: null });
+  };
+
+  const exportLogs = () => {
+    const element = document.createElement("a");
+    const fileContent = JSON.stringify({ gameInfo: { teams, scores, date: new Date().toLocaleDateString() }, rosters, logs }, null, 2);
+    const file = new Blob([fileContent], {type: 'text/plain'});
+    element.href = URL.createObjectURL(file);
+    element.download = `baseball_scorer_v27_final_${new Date().toISOString().slice(0,10)}.json`;
+    document.body.appendChild(element);
+    element.click();
+    document.body.removeChild(element);
+  };
+
+  const addLog = (message, type = 'neutral') => {
+    const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const teamName = inning.isTop ? teams.away : teams.home;
+    const inningStr = `${inning.number}${inning.isTop ? '上' : '下'}`;
+    const inningFullStr = `第 ${inning.number} 局 - ${inning.isTop ? '上半' : '下半'}`;
+    let finalMessage = message;
+    
+    // 修正 ID 生成，確保唯一性，避免 React key 錯誤
+    setLogs(prev => [...prev, { id: Date.now() + Math.random(), inningLabel: inningStr, inningGroup: inningFullStr, team: teamName, action: finalMessage, type, time: timestamp }]);
+  };
+
+  // --- Logic ---
+  const resetCount = () => { setBalls(0); setStrikes(0); setPitchSequence([]); };
+  const recordPitch = (result) => { 
+    setPitchSequence(prev => [...prev, result]);
+    const pitcher = getCurrentPitcher();
+    const teamKey = inning.isTop ? 'home' : 'away';
+    if (pitcher) updatePlayerStat(teamKey, pitcher.id, { np: 1 }, 'pitching');
+  };
+
+  const switchInning = () => {
+    if (inning.isTop && inning.number >= 9 && scores.home > scores.away) {
+       setGameEnded(true); setShowSummary(true); addLog(`比賽結束！主隊獲勝`, 'system'); return;
+    }
+    addLog(`--- ${inning.number}局${inning.isTop ? '上' : '下'} 結束 ---`, 'system');
+    setOuts(0); resetCount(); setBases([null, null, null]); 
+    setInning(prev => prev.isTop ? { ...prev, isTop: false } : { number: prev.number + 1, isTop: true });
+  };
+
+  const addScore = (runs, isRBI = true) => {
+    if (runs <= 0) return;
+    const scoringTeamKey = inning.isTop ? 'away' : 'home';
+    const defenseTeamKey = inning.isTop ? 'home' : 'away';
+    const currentInning = inning.number;
+    const newScore = scores[scoringTeamKey] + runs;
+    setScores(prev => ({ ...prev, [scoringTeamKey]: newScore }));
+    setLineScores(prev => {
+      const teamScores = { ...prev[scoringTeamKey] };
+      teamScores[currentInning] = (teamScores[currentInning] || 0) + runs;
+      return { ...prev, [scoringTeamKey]: teamScores };
+    });
+    if (isRBI) {
+        const batter = getCurrentBatter();
+        if (batter) updatePlayerStat(scoringTeamKey, batter.id, { rbi: runs });
+    }
+    const pitcher = getCurrentPitcher();
+    if (pitcher) updatePlayerStat(defenseTeamKey, pitcher.id, { r: runs, er: runs }, 'pitching');
+    addLog(`得分！ ${runs} 分進帳`, 'score');
+    if (!inning.isTop && inning.number >= 9 && newScore > scores.away) {
+      setGameEnded(true); setShowSummary(true); addLog(`再見比賽！${teams.home} 獲勝！`, 'system');
+    }
+  };
+
+  const addHitStat = () => {
+    const team = inning.isTop ? 'away' : 'home';
+    const defenseTeam = inning.isTop ? 'home' : 'away';
+    setStats(prev => ({ ...prev, [team]: { ...prev[team], hits: prev[team].hits + 1 } }));
+    const pitcher = getCurrentPitcher();
+    if (pitcher) updatePlayerStat(defenseTeam, pitcher.id, { h: 1 }, 'pitching');
+  };
+
+  const addErrorStat = () => {
+    const defenseTeam = inning.isTop ? 'home' : 'away';
+    setStats(prev => ({ ...prev, [defenseTeam]: { ...prev[defenseTeam], errors: prev[defenseTeam].errors + 1 } }));
+  };
+
+  // --- Game Actions ---
+  const handleBaseAction = (action, payload = null) => {
+    const baseIndex = activeBaseAction;
+    const runner = bases[baseIndex];
+    const teamKey = inning.isTop ? 'away' : 'home';
+    saveHistory();
+    const newBases = [...bases];
+    
+    if (action === 'place_runner' && payload) {
+        newBases[baseIndex] = payload;
+        addLog(`放置跑者於${['一','二','三'][baseIndex]}壘: ${payload.name}`, 'system');
+        setBases(newBases);
+        setActiveBaseAction(null);
+        return;
+    }
+    // ... rest of handleBaseAction logic (advance, sb, cs, etc.)
+    if (action === 'advance') {
+        const nextBase = baseIndex + 1;
+        if (nextBase > 2) {
+             newBases[baseIndex] = null;
+             addScore(1, false);
+             addLog(`${runner.name} 推進回本壘得分`, 'score');
+             setBases(newBases);
+        } else {
+             if (newBases[nextBase]) { 
+                 addLog(`無法推進：前方${['一','二','三'][nextBase]}壘有人`, 'error');
+                 return; 
+             }
+             newBases[nextBase] = newBases[baseIndex];
+             newBases[baseIndex] = null;
+             addLog(`${runner.name} 推進至${['一','二','三'][nextBase]}壘`, 'system');
+             setBases(newBases);
+        }
+        setActiveBaseAction(null);
+        return;
+    }
+
+    if (action === 'sb') {
+        if (baseIndex === 2) { newBases[2] = null; addScore(1, false); addLog(`${runner.name} 盜本壘成功 (SB)!`, 'score'); }
+        else if (!newBases[baseIndex + 1]) { newBases[baseIndex + 1] = newBases[baseIndex]; newBases[baseIndex] = null; addLog(`${runner.name} 盜壘成功 (SB)`, 'system'); }
+        else { addLog('前方壘包有人，無法盜壘', 'error'); return; }
+        updatePlayerStat(teamKey, runner.id, { sb: 1 });
+    } else if (action === 'cs') {
+        newBases[baseIndex] = null; addLog(`${runner.name} 盜壘失敗被刺殺 (CS)`, 'out'); updatePlayerStat(teamKey, runner.id, { cs: 1 });
+        const newOuts = outs + 1; if (newOuts >= 3) { setOuts(3); setTimeout(switchInning, 1000); } else setOuts(newOuts);
+    } else if (action === 'pickoff') {
+        newBases[baseIndex] = null; addLog(`${runner.name} 被牽制出局 (PO)`, 'out');
+        const newOuts = outs + 1; if (newOuts >= 3) { setOuts(3); setTimeout(switchInning, 1000); } else setOuts(newOuts);
+    } else if (action === 'pr') { 
+        // 修正 ID 生成
+        newBases[baseIndex] = { name: '代跑', number: 'PR', id: Date.now() + Math.random() }; 
+        addLog(`更換代跑`, 'system'); 
+    }
+    else if (action === 'remove') { newBases[baseIndex] = null; addLog(`手動移除跑者`, 'system'); }
+    
+    setBases(newBases); setActiveBaseAction(null);
+  };
+
+  const handleAdvanceOption = (type) => {
+    saveHistory();
+    let logPrefix = "";
+    if (type === 'wp') { recordPitch('B'); logPrefix = "投手暴投 (WP)！"; }
+    else if (type === 'pb') { recordPitch('B'); logPrefix = "捕手捕逸 (PB)！"; }
+    
+    let newBases = [...bases];
+    let runs = 0;
+    if (newBases[2]) { runs++; addLog(`${newBases[2].name} 趁傳回本壘得分！`, 'score'); newBases[2] = null; }
+    if (newBases[1]) { newBases[2] = newBases[1]; newBases[1] = null; }
+    if (newBases[0]) { newBases[1] = newBases[0]; newBases[0] = null; }
+    
+    setBases(newBases);
+    if(runs > 0) addScore(runs, false);
+    
+    if (type === 'wp' || type === 'pb') addLog(`${logPrefix} 壘上跑者全體推進。`, 'error');
+    else addLog('跑者全體推進 (Advance All)。', 'system');
+
+    setShowAdvanceModal(false);
+  };
+
+  const handleWildPitch = (isPassedBall) => {
+    handleAdvanceOption(isPassedBall ? 'pb' : 'wp');
+  };
+
+  const onFielderSelected = (positionNum) => {
+    setShowFielderSelector({ show: false, mode: 'out' });
+    const defenseTeamKey = inning.isTop ? 'home' : 'away';
+    
+    // 紀錄守備數據
+    const fielder = findFielderByPos(defenseTeamKey, positionNum);
+    
+    if (showFielderSelector.mode === 'out' && pendingOutType) {
+        // 如果是出局模式，將刺殺記在該球員身上
+        if (fielder) updatePlayerStat(defenseTeamKey, fielder.id, { po: 1 }, 'fielding');
+        handleOut(pendingOutType.text, pendingOutType.type, positionNum);
+        setPendingOutType(null);
+    } else if (showFielderSelector.mode === 'error') {
+        // 如果是失誤模式
+        addErrorStat();
+        addLog(`守備失誤 (${getPosName(positionNum)})`, 'error');
+        if (fielder) updatePlayerStat(defenseTeamKey, fielder.id, { e: 1 }, 'fielding');
+        
+        // 失誤上壘邏輯
+        const batter = getCurrentBatter(); 
+        const batterObj = batter ? { name: batter.name, number: batter.number } : { name: '打者', number: '' };
+        if (batter) updatePlayerStat(inning.isTop ? 'away' : 'home', batter.id, { ab: 1 });
+        if (!bases[0]) { 
+            const newBases = [...bases]; newBases[0] = batterObj; setBases(newBases); 
+            addLog('失誤上壘', 'neutral'); 
+            advanceBatter(); 
+        }
+    }
+  };
+
+  const initiateOut = (text, type) => { setPendingOutType({ text, type }); setShowFielderSelector({ show: true, mode: 'out' }); };
+  const initiateError = () => { saveHistory(); recordPitch('X'); setShowFielderSelector({ show: true, mode: 'error' }); };
+
+  const handleOut = (text, type = 'generic', position = '') => {
+    saveHistory();
+    const finalText = position ? `${text} (${getPosName(position)})` : text;
+    addLog(finalText, 'out'); // Removed pitchType
+    const batter = getCurrentBatter();
+    const teamKey = inning.isTop ? 'away' : 'home';
+    const defenseTeam = inning.isTop ? 'home' : 'away';
+    if (batter) {
+        if (type === 'sac_fly') updatePlayerStat(teamKey, batter.id, { sf: 1 });
+        else if (type === 'sac_bunt') updatePlayerStat(teamKey, batter.id, { sh: 1 });
+        else updatePlayerStat(teamKey, batter.id, { ab: 1 });
+    }
+    const outsToAdd = type === 'double_play' ? 2 : 1;
+    const pitcher = getCurrentPitcher();
+    if (pitcher) updatePlayerStat(defenseTeam, pitcher.id, { ip: outsToAdd * 0.33 }, 'pitching');
+    advanceBatter(); resetCount();
+    let runs = 0;
+    if (type === 'sac_fly' && bases[2]) { runs = 1; const newBases = [...bases]; newBases[2] = null; setBases(newBases); addScore(runs, true); addLog(`高飛犧牲打，跑者得分`, 'score'); }
+    if (type === 'groundout_adv') {
+        const newBases = [...bases];
+        if (newBases[1] && !newBases[2]) { newBases[2] = newBases[1]; newBases[1] = null; addLog('跑者推進至三壘', 'system'); }
+        else if (newBases[0] && !newBases[1]) { newBases[1] = newBases[0]; newBases[0] = null; addLog('跑者推進至二壘', 'system'); }
+        setBases(newBases);
+    }
+    const newOuts = outs + outsToAdd; if (newOuts >= 3) { setOuts(3); setTimeout(switchInning, 1000); } else setOuts(newOuts);
+  };
+
+  const handleHit = (hitType) => {
+    saveHistory(); recordPitch('X'); resetCount(); let runs = 0; let newBases = [...bases]; 
+    let hitName = ['一壘安打', '二壘安打', '三壘安打', '全壘打'][hitType - 1];
+    const batter = getCurrentBatter();
+    // 修正 ID 生成，使用 Math.random() 避免重複
+    const batterObj = batter ? { name: batter.name, number: batter.number, id: batter.id } : { name: '打者', number: '', id: Date.now() + Math.random() };
+    if (hitType === 4) { runs = 1 + newBases.filter(b => b !== null).length; newBases = [null, null, null]; } 
+    else {
+      for (let i = 2; i >= 0; i--) {
+        if (newBases[i]) {
+          if (i + hitType >= 3) { runs++; addLog(`${newBases[i].name} 得分`, 'score'); newBases[i] = null; } else { newBases[i + hitType] = newBases[i]; newBases[i] = null; }
+        }
+      }
+      if (hitType - 1 >= 3) { runs++; addLog(`${batterObj.name} 場內全壘打`, 'score'); } else { newBases[hitType - 1] = batterObj; }
+    }
+    if (batter) {
+        let statsUpdate = { ab: 1, h: 1 };
+        if (hitType === 4) { statsUpdate.hr = 1; statsUpdate.r = 1; }
+        updatePlayerStat(inning.isTop ? 'away' : 'home', batter.id, statsUpdate);
+    }
+    setBases(newBases); addHitStat(); addScore(runs, true); addLog(`${hitName}！`, 'hit'); advanceBatter();
+  };
+
+  const handleWalk = (type = 'bb') => {
+    saveHistory(); 
+    if (type !== 'ibb') recordPitch('B'); 
+    resetCount(); // 修正：無論是四壞、故意四壞或觸身球，打席結束都應重置球數
+    let newBases = [...bases]; let runs = 0;
+    const batter = getCurrentBatter();
+    // 修正 ID 生成，使用 Math.random() 避免重複
+    const batterObj = batter ? { name: batter.name, number: batter.number, id: batter.id } : { name: '打者', number: '', id: Date.now() + Math.random() };
+    if (!newBases[0]) newBases[0] = batterObj;
+    else if (!newBases[1]) { newBases[1] = newBases[0]; newBases[0] = batterObj; } 
+    else if (!newBases[2]) { newBases[2] = newBases[1]; newBases[1] = newBases[0]; newBases[0] = batterObj; } 
+    else { runs = 1; addLog(`${newBases[2].name} 擠回得分`, 'score'); newBases[2] = newBases[1]; newBases[1] = newBases[0]; newBases[0] = batterObj; }
+    if (batter) updatePlayerStat(inning.isTop ? 'away' : 'home', batter.id, { [type==='hbp'?'hbp':'bb']: 1 });
+    const pitcher = getCurrentPitcher();
+    const defenseTeam = inning.isTop ? 'home' : 'away';
+    if (pitcher) updatePlayerStat(defenseTeam, pitcher.id, { bb: 1 }, 'pitching');
+    setBases(newBases); addScore(runs, true); addLog(type === 'ibb' ? '故意四壞' : type === 'hbp' ? '觸身球' : '四壞球', 'walk'); advanceBatter();
+  };
+
+  const handleStrike = (isLooking = false) => {
+    saveHistory(); recordPitch('S'); 
+    if (strikes < 2) { setStrikes(p => p + 1); addLog(isLooking ? '目送好球' : '揮棒落空', 'neutral'); } 
+    else {
+      const batter = getCurrentBatter(); if (batter) updatePlayerStat(inning.isTop ? 'away' : 'home', batter.id, { ab: 1, so: 1 });
+      const pitcher = getCurrentPitcher(); const defenseTeam = inning.isTop ? 'home' : 'away'; if (pitcher) updatePlayerStat(defenseTeam, pitcher.id, { so: 1 }, 'pitching');
+      handleOut(isLooking ? '三振出局 (ꓘ)' : '三振出局 (K)', 'strikeout');
+    }
+  };
+
+  const handleBall = () => { saveHistory(); recordPitch('B'); if (balls < 3) { setBalls(p => p + 1); addLog('壞球', 'neutral'); } else { resetCount(); handleWalk('bb'); } };
+  
+  const handleFoul = () => {
+    saveHistory();
+    recordPitch('F');
+    if (strikes < 2) {
+      setStrikes(prev => prev + 1);
+      addLog('界外球 (Foul)', 'neutral');
+    } else {
+      addLog('界外球 (2好球後不計)', 'neutral');
+    }
+  };
+
+  const handleFieldersChoice = () => {
+    saveHistory(); recordPitch('X'); resetCount(); let newBases = [...bases]; let runs = 0;
+    if (newBases[2]) { runs++; newBases[2] = null; } 
+    if (newBases[1]) { newBases[2] = newBases[1]; newBases[1] = null; }
+    if (newBases[0]) { newBases[1] = newBases[0]; newBases[0] = null; }
+    const batter = getCurrentBatter(); const batterObj = batter ? { name: batter.name, number: batter.number } : { name: '打者', number: '' };
+    newBases[0] = batterObj;
+    if (batter) updatePlayerStat(inning.isTop ? 'away' : 'home', batter.id, { ab: 1 });
+    setBases(newBases); addScore(runs, true); addLog('野手選擇上壘', 'neutral'); advanceBatter();
+  };
+
+  const handleResetGame = () => {
+    if (resetConfirmState) {
+        setGameStarted(false);
+        setGameEnded(false);
+        setScores({ away: 0, home: 0 });
+        setStats({ away: { hits: 0, errors: 0 }, home: { hits: 0, errors: 0 } });
+        setLineScores({ away: {}, home: {} });
+        setInning({ number: 1, isTop: true });
+        setOuts(0);
+        setBalls(0);
+        setStrikes(0);
+        setBases([null, null, null]);
+        setLogs([]);
+        setHistory([]);
+        setBatterIndices({ away: 0, home: 0 });
+        setPitcherIndices({ away: 0, home: 0 });
+        setRosters({ away: [], home: [] });
+        localStorage.removeItem('baseball_scorer_v27_final');
+        setCurrentView('scorer');
+        setResetConfirmState(false);
+    } else {
+        setResetConfirmState(true);
+        setTimeout(() => setResetConfirmState(false), 3000);
+    }
+  };
+
+  const handleGameSummarySave = (decisions) => {
+    addLog(`[比賽結果] 勝:${decisions.win} 敗:${decisions.loss} 救:${decisions.save} MVP:${decisions.mvp}`, 'system');
+    setShowSummary(false);
+  };
+
+  const loadDemoRosters = () => {
+    const defaultStats = { ab: 0, h: 0, r: 0, rbi: 0, bb: 0, hbp: 0, so: 0, sf: 0, sh: 0, b1: 0, b2: 0, b3: 0, hr: 0, pitching: { ip: 0, h: 0, r: 0, er: 0, bb: 0, so: 0, np: 0 }, fielding: { po: 0, a: 0, e: 0 } };
+    const demoAway = [
+      { number: '17', name: 'S. Ohtani', pos: 'DH' }, { number: '50', name: 'M. Betts', pos: 'RF' }, { number: '5', name: 'F. Freeman', pos: '1B' }, { number: '37', name: 'T. Hernandez', pos: 'LF' }, { number: '13', name: 'M. Muncy', pos: '3B' }, { number: '8', name: 'K. Hernandez', pos: 'CF' }, { number: '16', name: 'W. Smith', pos: 'C' }, { number: '9', name: 'G. Lux', pos: '2B' }, { number: '4', name: 'T. Edman', pos: 'SS' }, { number: '0', name: 'J. Flaherty', pos: 'P' }
+    ].map(p => ({ ...p, id: Date.now() + Math.random(), ...defaultStats }));
+    const demoHome = [
+      { number: '25', name: 'G. Torres', pos: '2B' }, { number: '22', name: 'J. Soto', pos: 'RF' }, { number: '99', name: 'A. Judge', pos: 'CF' }, { number: '27', name: 'G. Stanton', pos: 'DH' }, { number: '13', name: 'J. Chisholm', pos: '3B' }, { number: '28', name: 'A. Rizzo', pos: '1B' }, { number: '11', name: 'A. Volpe', pos: 'SS' }, { number: '28', name: 'A. Wells', pos: 'C' }, { number: '24', name: 'A. Verdugo', pos: 'LF' }, { number: '45', name: 'G. Cole', pos: 'P' }
+    ].map(p => ({ ...p, id: Date.now() + Math.random(), ...defaultStats }));
+    setRosters({ away: demoAway, home: demoHome }); setPitcherIndices({ away: 9, home: 9 }); 
+    setTeamColors({ away: '#1e3a8a', home: '#1e293b' }); // Dodger Blue vs Yankee Dark
+    addLog("已匯入 2024 世界大賽 G1 名單", "system");
+  };
+
+  const handleAddPlayer = () => {
+    if (!newPlayer.name || !newPlayer.number) return;
+    const pos = rosterType === 'pitcher' ? 'P' : newPlayer.pos;
+    const newPlayerData = { 
+      ...newPlayer, pos,
+      // 修正 ID 生成
+      id: Date.now() + Math.random(),
+      ab: 0, h: 0, r: 0, rbi: 0, bb: 0, hbp: 0, so: 0, sf: 0, sh: 0, b1: 0, b2: 0, b3: 0, hr: 0,
+      pitching: { ip: 0, h: 0, r: 0, er: 0, bb: 0, so: 0, np: 0 },
+      fielding: { po: 0, a: 0, e: 0 }
+    };
+    setRosters(prev => ({ ...prev, [activeRosterTeam]: [...prev[activeRosterTeam], newPlayerData] }));
+    setNewPlayer({ number: '', name: '', pos: '' });
+  };
+
+  const removePlayer = (team, id) => { setRosters(prev => ({ ...prev, [team]: prev[team].filter(p => p.id !== id) })); };
+
+  // --- Views ---
+  const ScoreboardTable = () => (
+    <div className="overflow-x-auto bg-slate-950/50 rounded-lg p-2 mb-4 border border-slate-700">
+      <table className="w-full text-center text-sm">
+        <thead><tr className="text-slate-500 border-b border-slate-700"><th className="p-1 text-left min-w-[60px]">隊伍</th>{[...Array(9)].map((_, i) => <th key={i} className="p-1 w-8">{i + 1}</th>)}<th className="p-1 w-8 text-white font-bold bg-slate-800">R</th><th className="p-1 w-8 text-slate-300">H</th><th className="p-1 w-8 text-slate-300">E</th></tr></thead>
+        <tbody>
+          <tr className="border-b border-slate-800 text-slate-300"><td className="p-2 text-left font-bold" style={{color: teamColors.away}}>{teams.away}</td>{[...Array(9)].map((_, i) => <td key={i} className="p-1 text-slate-400">{lineScores.away[i + 1] !== undefined ? lineScores.away[i + 1] : (i < inning.number - 1 || (i === inning.number - 1 && !inning.isTop) ? 0 : '')}</td>)}<td className="p-1 font-bold bg-slate-800 text-white">{scores.away}</td><td className="p-1">{stats.away.hits}</td><td className="p-1">{stats.away.errors}</td></tr>
+          <tr className="text-slate-300"><td className="p-2 text-left font-bold" style={{color: teamColors.home}}>{teams.home}</td>{[...Array(9)].map((_, i) => <td key={i} className="p-1 text-slate-400">{lineScores.home[i + 1] !== undefined ? lineScores.home[i + 1] : (i < inning.number - 1 ? 0 : '')}</td>)}<td className="p-1 font-bold bg-slate-800 text-white">{scores.home}</td><td className="p-1">{stats.home.hits}</td><td className="p-1">{stats.home.errors}</td></tr>
+        </tbody>
+      </table>
+    </div>
+  );
+
+  const BoxScoreView = () => (
+    <div className="flex flex-col h-full overflow-hidden">
+        <div className="mb-4"><select value={activeRosterTeam} onChange={(e) => setActiveRosterTeam(e.target.value)} className="w-full bg-slate-800 text-white p-3 rounded-lg border border-slate-600 font-bold focus:outline-none focus:border-blue-500 appearance-none text-center" style={{backgroundImage: 'none'}}><option value="away">{teams.away} (客隊)</option><option value="home">{teams.home} (主隊)</option></select></div>
+        <div className="flex justify-center mb-4 gap-4">
+            <button onClick={() => setBoxScoreType('batting')} className={`px-4 py-1 rounded-full text-sm ${boxScoreType === 'batting' ? 'bg-green-600 text-white' : 'bg-slate-700 text-slate-400'}`}>打擊</button>
+            <button onClick={() => setBoxScoreType('pitching')} className={`px-4 py-1 rounded-full text-sm ${boxScoreType === 'pitching' ? 'bg-orange-600 text-white' : 'bg-slate-700 text-slate-400'}`}>投手</button>
+            <button onClick={() => setBoxScoreType('fielding')} className={`px-4 py-1 rounded-full text-sm ${boxScoreType === 'fielding' ? 'bg-blue-600 text-white' : 'bg-slate-700 text-slate-400'}`}>守備</button>
+        </div>
+        <div className="flex-1 overflow-auto bg-slate-800/50 rounded-lg border border-slate-700/50">
+            <table className="w-full text-center text-sm">
+                <thead className="bg-slate-900 text-slate-400 sticky top-0">
+                    {boxScoreType === 'batting' ? <tr><th className="p-3 text-left">打者</th><th className="p-3">AB</th><th className="p-3">H</th><th className="p-3">HR</th><th className="p-3">RBI</th><th className="p-3">AVG</th><th className="p-3">OPS</th></tr> : 
+                     boxScoreType === 'pitching' ? <tr><th className="p-3 text-left">投手</th><th className="p-3">IP</th><th className="p-3">H</th><th className="p-3">R</th><th className="p-3">BB</th><th className="p-3">SO</th><th className="p-3">ERA</th><th className="p-3">WHIP</th></tr> :
+                     <tr><th className="p-3 text-left">野手</th><th className="p-3">位置</th><th className="p-3">PO</th><th className="p-3">A</th><th className="p-3">E</th><th className="p-3">FPCT</th></tr>
+                    }
+                </thead>
+                <tbody className="divide-y divide-slate-700/50">
+                    {rosters[activeRosterTeam]
+                      .filter(p => {
+                          if (boxScoreType === 'batting') return !isPitcher(p.pos) || p.ab > 0;
+                          if (boxScoreType === 'pitching') return isPitcher(p.pos) || (p.pitching && p.pitching.ip > 0);
+                          return true;
+                      })
+                      .map(p => {
+                        if (!p.pitching) p.pitching = { ip: 0, h: 0, r: 0, er: 0, bb: 0, so: 0, np: 0 };
+                        if (!p.fielding) p.fielding = { po: 0, a: 0, e: 0 };
+                        
+                        if (boxScoreType === 'batting') {
+                            const avg = p.ab > 0 ? (p.h / p.ab).toFixed(3) : '.000'; const obp = (p.ab + p.bb + (p.hbp||0) + p.sf) > 0 ? (p.h + p.bb + (p.hbp||0)) / (p.ab + p.bb + (p.hbp||0) + p.sf) : 0; const slg = p.ab > 0 ? ((p.b1||0) + 2*(p.b2||0) + 3*(p.b3||0) + 4*(p.hr||0)) / p.ab : 0; const ops = (obp + slg).toFixed(3);
+                            return <tr key={p.id} className="hover:bg-slate-700/30"><td className="p-3 text-left font-bold text-white">{p.name}</td><td className="p-3 text-slate-300">{p.ab}</td><td className="p-3 font-bold text-yellow-400">{p.h}</td><td className="p-3 text-slate-300">{p.hr||0}</td><td className="p-3 text-slate-300">{p.rbi}</td><td className="p-3 text-blue-300 font-mono">{avg}</td><td className="p-3 text-green-300 font-mono">{ops}</td></tr>;
+                        } else if (boxScoreType === 'pitching') {
+                             const ip = p.pitching.ip; const displayIP = (Math.floor(ip) + (ip % 1 * 3) / 10).toFixed(1); const era = ip > 0 ? ((p.pitching.er * 9) / ip).toFixed(2) : '0.00'; const whip = ip > 0 ? ((p.pitching.h + p.pitching.bb) / ip).toFixed(2) : '0.00';
+                             return <tr key={p.id} className="hover:bg-slate-700/30"><td className="p-3 text-left font-bold text-white">{p.name}</td><td className="p-3 text-white font-bold">{displayIP}</td><td className="p-3 text-slate-300">{p.pitching.h}</td><td className="p-3 text-slate-300">{p.pitching.r}</td><td className="p-3 text-slate-300">{p.pitching.bb}</td><td className="p-3 text-slate-300">{p.pitching.so}</td><td className="p-3 text-blue-300 font-mono">{era}</td><td className="p-3 text-green-300 font-mono">{whip}</td></tr>;
+                        } else {
+                             const totalChances = p.fielding.po + p.fielding.a + p.fielding.e;
+                             const fpct = totalChances > 0 ? ((p.fielding.po + p.fielding.a) / totalChances).toFixed(3) : '.000';
+                             return <tr key={p.id} className="hover:bg-slate-700/30"><td className="p-3 text-left font-bold text-white">{p.name}</td><td className="p-3 text-slate-400">{p.pos}</td><td className="p-3 text-slate-300">{p.fielding.po}</td><td className="p-3 text-slate-300">{p.fielding.a}</td><td className="p-3 font-bold text-red-400">{p.fielding.e}</td><td className="p-3 text-blue-300 font-mono">{fpct}</td></tr>;
+                        }
+                    })}
+                </tbody>
+            </table>
+        </div>
+    </div>
+  );
+
+  const RosterView = () => (
+      <div className="flex flex-col h-full">
+        <div className="mb-4 text-center"><button onClick={loadDemoRosters} className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 rounded-lg flex items-center justify-center gap-2 transition shadow-lg border border-indigo-500"><FileDown size={20}/> 匯入示範名單 (2024 WS)</button></div>
+        <div className="mb-2 flex gap-2 items-center">
+            <select value={activeRosterTeam} onChange={(e) => setActiveRosterTeam(e.target.value)} className="flex-1 bg-slate-800 text-white p-3 rounded-lg border border-slate-600 font-bold focus:outline-none focus:border-blue-500 appearance-none text-center" style={{backgroundImage: 'none'}}><option value="away">{teams.away} (客隊)</option><option value="home">{teams.home} (主隊)</option></select>
+            <div className="relative shrink-0" title="更換隊伍顏色">
+                <input type="color" value={teamColors[activeRosterTeam]} onChange={(e) => setTeamColors({...teamColors, [activeRosterTeam]: e.target.value})} className="w-12 h-[50px] p-1 bg-slate-800 border border-slate-600 rounded-lg cursor-pointer" />
+            </div>
+        </div>
+        <div className="flex gap-2 mb-4"><button onClick={() => setRosterType('batter')} className={`flex-1 py-2 rounded-lg font-bold transition ${rosterType === 'batter' ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'}`}><Dumbbell size={16} className="inline mr-1"/> 野手名單</button><button onClick={() => setRosterType('pitcher')} className={`flex-1 py-2 rounded-lg font-bold transition ${rosterType === 'pitcher' ? 'bg-orange-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'}`}><Swords size={16} className="inline mr-1"/> 投手名單</button></div>
+        <div className="bg-slate-800 p-3 rounded-lg border border-slate-700 mb-4 flex gap-2"><input type="text" placeholder="#" className="w-12 bg-slate-900 border border-slate-600 rounded px-2 py-1 text-center" value={newPlayer.number} onChange={e => setNewPlayer({...newPlayer, number: e.target.value})} /><input type="text" placeholder="姓名" className="flex-1 bg-slate-900 border border-slate-600 rounded px-2 py-1" value={newPlayer.name} onChange={e => setNewPlayer({...newPlayer, name: e.target.value})} />{rosterType === 'batter' && <input type="text" placeholder="守備" className="w-16 bg-slate-900 border border-slate-600 rounded px-2 py-1 text-center" value={newPlayer.pos} onChange={e => setNewPlayer({...newPlayer, pos: e.target.value})} />}<button onClick={handleAddPlayer} className="bg-green-600 hover:bg-green-500 text-white p-2 rounded"><Plus size={20}/></button></div>
+        <div className="flex-1 overflow-y-auto bg-slate-800/50 rounded-lg p-2 border border-slate-700/50"><table className="w-full text-left text-sm"><thead className="text-slate-400 border-b border-slate-700"><tr><th className="p-2">#</th><th className="p-2">姓名</th><th className="p-2">位置</th><th className="p-2 text-right">操作</th></tr></thead><tbody>{rosters[activeRosterTeam].filter(p => rosterType === 'pitcher' ? isPitcher(p.pos) : !isPitcher(p.pos)).map((player) => (<tr key={player.id} className="border-b border-slate-700/50 hover:bg-slate-700/30"><td className="p-2 font-mono text-slate-300">{player.number}</td><td className="p-2 text-white font-bold">{player.name}</td><td className="p-2 text-slate-400">{player.pos}</td><td className="p-2 text-right"><button onClick={() => removePlayer(activeRosterTeam, player.id)} className="text-red-400 hover:text-red-300"><Trash2 size={16} /></button></td></tr>))}</tbody></table></div>
+      </div>
+  );
+
+  const LogsView = () => {
+    const filteredLogs = logs.filter(log => logFilter === 'all' ? true : log.type === logFilter);
+    const groupedLogs = filteredLogs.reduce((acc, log) => { const groupKey = log.inningGroup || '其他'; if (!acc[groupKey]) acc[groupKey] = []; acc[groupKey].push(log); return acc; }, {});
+    return (
+      <div className="flex-1 overflow-hidden flex flex-col h-full bg-slate-950 rounded-lg border border-slate-800">
+        <div className="p-3 border-b border-slate-800 bg-slate-900/90">
+           <div className="flex justify-between items-center mb-3"><h2 className="font-bold text-slate-300 flex items-center gap-2"><ClipboardList size={18} /> 戰報 (由新到舊)</h2><button onClick={exportLogs} className="text-xs bg-slate-800 hover:bg-slate-700 text-blue-400 px-3 py-1.5 rounded flex items-center gap-1 transition"><Download size={14}/> 匯出</button></div>
+           <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">{['all', 'score', 'hit', 'out'].map(f => <button key={f} onClick={() => setLogFilter(f)} className={`px-3 py-1 rounded-full text-xs font-bold whitespace-nowrap transition ${logFilter === f ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400'}`}>{f === 'all' ? '全部' : f}</button>)}</div>
+        </div>
+        <div className="flex-1 overflow-y-auto p-4 font-mono text-sm space-y-2">
+          {filteredLogs.reverse().map((log) => (
+             <div key={log.id} className={`p-3 rounded border-l-4 ${
+                  log.type === 'hit' ? 'bg-blue-900/10 border-blue-500' :
+                  log.type === 'score' ? 'bg-purple-900/10 border-purple-500' :
+                  log.type === 'out' ? 'bg-red-900/10 border-red-500' :
+                  log.type === 'walk' ? 'bg-green-900/10 border-green-500' :
+                  log.type === 'error' ? 'bg-orange-900/10 border-orange-500' :
+                  log.type === 'system' ? 'bg-slate-800 border-slate-500 text-center text-slate-400 py-1' :
+                  'bg-slate-900 border-slate-600'
+                }`}>
+                <div className="flex justify-between text-xs text-slate-500 mb-1">
+                    <span>{log.time}</span>
+                    <span>{log.inningLabel} {log.team}</span>
+                </div>
+                <div className={log.type==='system'?'text-center text-slate-400':'text-slate-200'}>{log.action}</div>
+             </div>
+          ))}
+          <div ref={logsEndRef} />
+        </div>
+      </div>
+    );
+  };
+
+  if (!gameStarted) {
+    return (
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4 font-sans text-white">
+        <div className="bg-slate-800 p-8 rounded-2xl shadow-xl w-full max-w-md border border-slate-700">
+          <div className="flex justify-center mb-6 text-blue-400"><Trophy size={64} /></div>
+          <h1 className="text-3xl font-bold text-center mb-8">棒球計分板</h1>
+          <div className="space-y-4">
+            <div className="flex gap-2">
+                <div className="flex-1">
+                    <label className="block text-sm text-slate-400 mb-1">客隊 (先攻)</label>
+                    <div className="flex gap-2">
+                        <input type="text" value={teams.away} onChange={(e) => setTeams({...teams, away: e.target.value})} className="w-full bg-slate-700 border border-slate-600 rounded px-4 py-2" />
+                        <div className="relative">
+                            <input type="color" value={teamColors.away} onChange={(e) => setTeamColors({...teamColors, away: e.target.value})} className="w-10 h-10 p-0 border-0 rounded overflow-hidden cursor-pointer" />
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div className="flex gap-2">
+                <div className="flex-1">
+                    <label className="block text-sm text-slate-400 mb-1">主隊 (後攻)</label>
+                    <div className="flex gap-2">
+                        <input type="text" value={teams.home} onChange={(e) => setTeams({...teams, home: e.target.value})} className="w-full bg-slate-700 border border-slate-600 rounded px-4 py-2" />
+                        <div className="relative">
+                            <input type="color" value={teamColors.home} onChange={(e) => setTeamColors({...teamColors, home: e.target.value})} className="w-10 h-10 p-0 border-0 rounded overflow-hidden cursor-pointer" />
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div className="flex gap-2">
+              <button onClick={() => { loadDemoRosters(); setGameStarted(true); }} className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 rounded-lg mt-4 flex items-center justify-center gap-2 text-sm"><FileDown size={18}/> 載入 2024 WS 名單</button>
+              <button onClick={() => setGameStarted(true)} className="flex-1 bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-lg mt-4 flex items-center justify-center gap-2 text-sm"><Activity size={18}/> 直接開始</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const currentBatter = getCurrentBatter();
+  const currentPitcher = getCurrentPitcher();
+  const runnersOnBase = bases.some(b => b !== null);
+  
+  const currentOffenseRoster = rosters[inning.isTop ? 'away' : 'home'];
+  const currentDefenseRoster = rosters[inning.isTop ? 'home' : 'away'];
+  const currentOffenseTeamName = inning.isTop ? teams.away : teams.home;
+  const currentDefenseTeamName = inning.isTop ? teams.home : teams.away;
+
+  // 動態樣式
+  const currentBattingColor = inning.isTop ? teamColors.away : teamColors.home;
+  const currentPitchingColor = inning.isTop ? teamColors.home : teamColors.away;
+
+  return (
+    <div className="min-h-screen bg-slate-900 text-white flex flex-col font-sans h-screen overflow-hidden relative" style={{'--team-away': teamColors.away, '--team-home': teamColors.home}}>
+      {activeBaseAction !== null && <BaseActionModal baseIndex={activeBaseAction} runner={bases[activeBaseAction]} onClose={() => setActiveBaseAction(null)} onAction={handleBaseAction} roster={currentOffenseRoster} />}
+      {showFielderSelector.show && <FielderSelector title={showFielderSelector.mode === 'error' ? '失誤球員' : '接殺/刺殺球員'} onSelect={onFielderSelected} onCancel={() => setShowFielderSelector({show: false, mode: 'out'})} />}
+      {showSummary && <GameSummaryModal scores={scores} teams={teams} rosters={rosters} onSave={handleGameSummarySave} onClose={() => setShowSummary(false)} />}
+      {subModal.isOpen && <SubstitutionModal teamName={subModal.role === 'batter' ? currentOffenseTeamName : currentDefenseTeamName} role={subModal.role} roster={subModal.role === 'batter' ? currentOffenseRoster : currentDefenseRoster} currentId={subModal.role === 'batter' ? currentBatter?.id : currentPitcher?.id} onConfirm={handleSubstitutionConfirm} onClose={() => setSubModal({ isOpen: false, role: null })} />}
+      {showAdvanceModal && <AdvanceOptionModal onClose={() => setShowAdvanceModal(false)} onAction={handleAdvanceOption} />}
+      {showHotkeysHelp && <HotkeyHelpModal onClose={() => setShowHotkeysHelp(false)} />}
+
+      <div className="bg-slate-900 border-b border-slate-800 p-2 flex gap-2 sticky top-0 z-40 shadow-md overflow-x-auto">
+        <button onClick={() => setGameStarted(false)} className="px-3 py-2 rounded-lg flex items-center justify-center text-slate-400 hover:bg-slate-800 hover:text-white transition" title="返回首頁">
+            <Home size={18}/>
+        </button>
+        <button onClick={() => setCurrentView('scorer')} className={`px-4 py-2 rounded-lg flex items-center gap-2 text-sm font-bold whitespace-nowrap transition ${currentView === 'scorer' ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400'}`} style={currentView === 'scorer' ? {backgroundColor: currentBattingColor} : {}}><PlayCircle size={16}/> 比賽 (Play)</button>
+        <button onClick={() => setCurrentView('boxscore')} className={`px-4 py-2 rounded-lg flex items-center gap-2 text-sm font-bold whitespace-nowrap transition ${currentView === 'boxscore' ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400'}`} style={currentView === 'boxscore' ? {backgroundColor: currentBattingColor} : {}}><Table size={16}/> 數據 (Stats)</button>
+        <button onClick={() => setCurrentView('roster')} className={`px-4 py-2 rounded-lg flex items-center gap-2 text-sm font-bold whitespace-nowrap transition ${currentView === 'roster' ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400'}`} style={currentView === 'roster' ? {backgroundColor: currentBattingColor} : {}}><Users size={16}/> 名單 (Roster)</button>
+        <button onClick={() => setCurrentView('logs')} className={`px-4 py-2 rounded-lg flex items-center gap-2 text-sm font-bold whitespace-nowrap transition ${currentView === 'logs' ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400'}`} style={currentView === 'logs' ? {backgroundColor: currentBattingColor} : {}}><ClipboardList size={16}/> 戰報 (Logs)</button>
+      </div>
+
+      <div className="flex-1 overflow-hidden relative">
+        {currentView === 'scorer' && (
+          <div className="flex flex-col md:flex-row h-full">
+            <div className="flex-1 p-3 overflow-y-auto pb-24 md:pb-4">
+              
+              <ScoreboardTable />
+
+              <div className="flex flex-col gap-2 mb-4">
+                <div className="flex justify-between items-center bg-slate-800/50 p-2 rounded-lg border border-slate-700/50">
+                  <div className="text-slate-400 font-bold flex items-center gap-2 text-sm">
+                      <span className="px-2 py-1 rounded text-white" style={{backgroundColor: inning.isTop ? teamColors.away : teamColors.home}}>{inning.number}{inning.isTop ? '上' : '下'}</span>
+                      {gameEnded ? <span className="text-yellow-400 font-bold">比賽結束</span> : (inning.isTop ? `${teams.away} 進攻` : `${teams.home} 進攻`)}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {inning.number >= 10 && <button onClick={() => {saveHistory(); const nb=[...bases]; nb[1]={name:'Ghost',number:'GR'}; setBases(nb); addLog('突破僵局制', 'system');}} className="text-xs bg-purple-900/40 text-purple-300 px-2 py-1 rounded border border-purple-500/30">突破僵局</button>}
+                    
+                    {/* NEW RESET BUTTON HERE */}
+                    <button onClick={handleResetGame} className={`text-xs px-3 py-1.5 rounded flex items-center gap-1 transition ${resetConfirmState ? 'bg-red-600 text-white' : 'bg-slate-700 hover:bg-slate-600 text-slate-200'}`}>
+                        <RotateCcw size={14}/> {resetConfirmState ? '確定?' : '重置'}
+                    </button>
+
+                    <button onClick={handleUndo} disabled={history.length === 0} className="text-xs bg-slate-700 hover:bg-slate-600 text-slate-200 px-3 py-1.5 rounded flex items-center gap-1 disabled:opacity-30"><Undo2 size={14}/> 復原</button>
+                    <button onClick={() => setShowHotkeysHelp(true)} className="text-xs bg-slate-700 hover:bg-slate-600 text-slate-200 px-2 py-1 rounded flex items-center gap-1"><Keyboard size={14}/></button>
+                    <button onClick={() => setShowSummary(true)} className="text-xs bg-yellow-600 hover:bg-yellow-500 text-white px-2 py-1 rounded flex items-center gap-1"><Medal size={14}/></button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                    <div className="bg-slate-800 p-2 rounded-lg border border-blue-500/30 shadow-lg relative overflow-hidden" style={{borderColor: `${currentBattingColor}4D`}}>
+                       <div className="absolute top-0 right-0 text-[9px] px-1.5 py-0.5 text-white rounded-bl" style={{backgroundColor: currentBattingColor}}>BATTER</div>
+                       <div className="flex items-center gap-2">
+                          <div className="bg-slate-700 p-1.5 rounded-full"><Target size={16} style={{color: currentBattingColor}}/></div>
+                          <div className="flex-1 min-w-0">
+                             <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider truncate">At Bat</div>
+                             {currentBatter ? (
+                                 <div className="truncate">
+                                     <span className="text-lg font-bold text-white font-mono mr-1">{currentBatter.number}</span>
+                                     <span className="text-sm text-white font-bold">{currentBatter.name}</span>
+                                     <div className="text-[10px] text-slate-400">{currentBatter.h}-{currentBatter.ab} (AVG {(currentBatter.ab>0?(currentBatter.h/currentBatter.ab).toFixed(3):'.000')})</div>
+                                 </div>
+                             ) : <div className="text-slate-500 text-xs italic">無打者資料</div>}
+                          </div>
+                       </div>
+                       <div className="mt-2 flex gap-1 justify-end">
+                          <button onClick={() => openSubstitutionModal('batter')} className="text-[10px] bg-slate-700 px-2 py-1 rounded text-slate-300 hover:text-white transition flex items-center gap-1 border border-slate-600" style={{'--hover-color': currentBattingColor}}>
+                              <UserCog size={12}/> 換人
+                          </button>
+                       </div>
+                    </div>
+
+                    <div className="bg-slate-800 p-2 rounded-lg border border-orange-500/30 shadow-lg relative overflow-hidden" style={{borderColor: `${currentPitchingColor}4D`}}>
+                       <div className="absolute top-0 right-0 text-[9px] px-1.5 py-0.5 text-white rounded-bl" style={{backgroundColor: currentPitchingColor}}>PITCHER</div>
+                       <div className="flex items-center gap-2">
+                          <div className="bg-slate-700 p-1.5 rounded-full"><Disc size={16} style={{color: currentPitchingColor}}/></div>
+                          <div className="flex-1 min-w-0">
+                             <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider truncate">Pitching</div>
+                             {currentPitcher ? (
+                                 <div className="truncate">
+                                     <span className="text-lg font-bold text-white font-mono mr-1">{currentPitcher.number}</span>
+                                     <span className="text-sm text-white font-bold">{currentPitcher.name}</span>
+                                     <div className="text-[10px] text-slate-400">Pitches: <span className="text-yellow-400 font-bold">{currentPitcher.pitching.np}</span></div>
+                                 </div>
+                             ) : <div className="text-slate-500 text-xs italic">無投手資料</div>}
+                          </div>
+                       </div>
+                       <div className="mt-2 flex gap-1 justify-end">
+                          <button onClick={() => openSubstitutionModal('pitcher')} className="text-[10px] bg-slate-700 px-2 py-1 rounded text-slate-300 hover:text-white transition flex items-center gap-1 border border-slate-600">
+                              <UserCog size={12}/> 換投
+                          </button>
+                       </div>
+                    </div>
+                </div>
+                
+                <PitchClock bases={bases} />
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
+                <div className="bg-green-800/20 rounded-xl p-4 relative h-64 flex items-center justify-center border border-green-900/50 overflow-hidden">
+                  <div className="absolute inset-0 opacity-10 bg-[radial-gradient(#000_1px,transparent_1px)] [background-size:16px_16px]"></div>
+                  <div className="relative w-40 h-40 transform rotate-45 border-2 border-amber-700/50 bg-amber-900/20">
+                    <div className="absolute bottom-[-12px] right-[-12px] w-8 h-8 bg-white z-10 shadow-lg" style={{transform: 'rotate(-45deg)', clipPath: 'polygon(50% 100%, 0 50%, 0 0, 100% 0, 100% 50%)'}}></div>
+                    <div onClick={() => setActiveBaseAction(0)} className={`absolute top-[-10px] right-[-10px] w-7 h-7 shadow-lg border-2 border-white transition-all duration-300 cursor-pointer hover:scale-125 z-20 flex items-center justify-center ${bases[0] ? 'bg-yellow-400' : 'bg-white/30 hover:bg-white/50'}`}>
+                       {bases[0] && <span className="text-[9px] font-bold text-black -rotate-45">{bases[0].number}</span>}
+                    </div>
+                    <div onClick={() => setActiveBaseAction(1)} className={`absolute top-[-10px] left-[-10px] w-7 h-7 shadow-lg border-2 border-white transition-all duration-300 cursor-pointer hover:scale-125 z-20 flex items-center justify-center ${bases[1] ? 'bg-yellow-400' : 'bg-white/30 hover:bg-white/50'}`}>
+                       {bases[1] && <span className="text-[9px] font-bold text-black -rotate-45">{bases[1].number}</span>}
+                    </div>
+                    <div onClick={() => setActiveBaseAction(2)} className={`absolute bottom-[-10px] left-[-10px] w-7 h-7 shadow-lg border-2 border-white transition-all duration-300 cursor-pointer hover:scale-125 z-20 flex items-center justify-center ${bases[2] ? 'bg-yellow-400' : 'bg-white/30 hover:bg-white/50'}`}>
+                       {bases[2] && <span className="text-[9px] font-bold text-black -rotate-45">{bases[2].number}</span>}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-slate-800 rounded-xl p-6 border border-slate-700 flex flex-col justify-center gap-4 relative">
+                  <div className="absolute top-4 right-4 flex gap-1">{pitchSequence.map((p, idx) => <div key={idx} className={`w-2 h-2 rounded-full ${p==='B'?'bg-green-500':p==='X'?'bg-blue-500':p==='F'?'bg-slate-400':'bg-yellow-500'}`} title={p}></div>)}</div>
+                  <div className="flex items-center justify-between px-4"><span className="text-2xl font-black text-green-500 font-mono w-8">B</span><div className="flex gap-3">{[...Array(3)].map((_, i) => <div key={i} className={`w-6 h-6 rounded-full border-2 border-green-900 ${i < balls ? 'bg-green-500 shadow-glow-green' : 'bg-slate-700'}`}></div>)}</div></div>
+                  <div className="flex items-center justify-between px-4"><span className="text-2xl font-black text-yellow-500 font-mono w-8">S</span><div className="flex gap-3">{[...Array(2)].map((_, i) => <div key={i} className={`w-6 h-6 rounded-full border-2 border-yellow-900 ${i < strikes ? 'bg-yellow-500 shadow-glow-yellow' : 'bg-slate-700'}`}></div>)}</div></div>
+                  <div className="flex items-center justify-between px-4"><span className="text-2xl font-black text-red-500 font-mono w-8">O</span><div className="flex gap-3">{[...Array(2)].map((_, i) => <div key={i} className={`w-6 h-6 rounded-full border-2 border-red-900 ${i < outs ? 'bg-red-500 shadow-glow-red' : 'bg-slate-700'}`}></div>)}</div></div>
+                </div>
+              </div>
+
+              {!gameEnded && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="bg-slate-800 p-3 rounded-xl border border-slate-700">
+                  <h3 className="text-slate-400 text-xs font-bold mb-2 uppercase tracking-wider flex justify-between items-center">
+                      <span>投球判定</span>
+                  </h3>
+                  <div className="grid grid-cols-2 gap-2 mt-2">
+                    <button onClick={handleBall} className="bg-green-900/40 hover:bg-green-800/60 text-green-400 border border-green-700/50 py-3 rounded font-bold transition">壞球 (B)</button>
+                    <button onClick={() => handleStrike(false)} className="bg-yellow-900/40 hover:bg-yellow-800/60 text-yellow-400 border border-yellow-700/50 py-3 rounded font-bold transition">揮棒落空 (S)</button>
+                    <button onClick={() => handleStrike(true)} className="bg-yellow-900/20 hover:bg-yellow-800/40 text-yellow-200 border border-yellow-700/30 py-2 rounded text-sm transition">目送好球 (K)</button>
+                    <button onClick={handleFoul} className="bg-slate-700 hover:bg-slate-600 text-slate-300 py-2 rounded font-bold transition text-sm">界外 (F)</button>
+                    <button onClick={() => { handleWalk('ibb'); }} className="bg-indigo-900/40 hover:bg-indigo-800/60 text-indigo-300 border border-indigo-700/50 py-2 rounded font-bold transition text-xs flex items-center justify-center gap-1 col-span-1">故意四壞</button>
+                    <button onClick={() => { setPitchCount(p=>p+1); handleWalk('hbp'); }} className="bg-indigo-900/40 hover:bg-indigo-800/60 text-indigo-300 border border-indigo-700/50 py-2 rounded font-bold transition text-xs flex items-center justify-center gap-1 col-span-1">觸身球</button>
+                  </div>
+                </div>
+
+                <div className="bg-slate-800 p-3 rounded-xl border border-slate-700">
+                  <h3 className="text-slate-400 text-xs font-bold mb-2 uppercase tracking-wider">
+                      打擊結果
+                  </h3>
+                  
+                  <div className="space-y-3 mt-2">
+                     <div className="grid grid-cols-4 gap-2">
+                        <button onClick={() => handleHit(1)} className="bg-blue-600 hover:bg-blue-500 text-white py-2 rounded font-bold text-xs">一安 (1)</button>
+                        <button onClick={() => handleHit(2)} className="bg-blue-600 hover:bg-blue-500 text-white py-2 rounded font-bold text-xs">二安 (2)</button>
+                        <button onClick={() => handleHit(3)} className="bg-blue-600 hover:bg-blue-500 text-white py-2 rounded font-bold text-xs">三安 (3)</button>
+                        <button onClick={() => handleHit(4)} className="bg-purple-600 hover:bg-purple-500 text-white py-2 rounded font-bold text-xs">全壘打 (4)</button>
+                     </div>
+
+                     <div className="grid grid-cols-4 gap-2">
+                        <button onClick={() => initiateOut('滾地出局', 'groundout')} className="bg-red-700 hover:bg-red-600 text-white py-2 rounded font-bold text-xs">滾地</button>
+                        <button onClick={() => initiateOut('飛球接殺', 'flyout')} className="bg-red-700 hover:bg-red-600 text-white py-2 rounded font-bold text-xs">飛球</button>
+                        <button onClick={() => initiateOut('平飛接殺', 'lineout')} className="bg-red-700 hover:bg-red-600 text-white py-2 rounded font-bold text-xs">平飛</button>
+                        <button onClick={() => handleOut('雙殺打', 'double_play')} className="bg-red-900 hover:bg-red-800 text-red-100 py-2 rounded font-bold text-xs border border-red-700">雙殺</button>
+                     </div>
+
+                     <div className="grid grid-cols-4 gap-2">
+                        <button onClick={() => handleOut('高飛犧牲打', 'sac_fly')} className="bg-yellow-700 hover:bg-yellow-600 text-white py-1 rounded text-[10px]">高飛犧牲</button>
+                        <button onClick={() => handleOut('犧牲觸擊', 'sac_bunt')} className="bg-yellow-700 hover:bg-yellow-600 text-white py-1 rounded text-[10px]">短打犧牲</button>
+                        <button onClick={handleFieldersChoice} className="bg-slate-600 hover:bg-slate-500 text-white py-1 rounded text-[10px]">野選</button>
+                        <button onClick={initiateError} className="bg-orange-700 hover:bg-orange-600 text-white py-1 rounded text-[10px]">失誤</button>
+                     </div>
+                     <button onClick={() => initiateOut('滾地推進', 'groundout_adv')} className="w-full bg-slate-700 hover:bg-slate-600 text-slate-300 py-1.5 rounded text-[10px] flex items-center justify-center border border-slate-600">
+                        滾地出局但推進跑者 (Productive Out)
+                     </button>
+                  </div>
+                </div>
+              </div>
+              )}
+            </div>
+            
+            <div className="hidden md:flex w-64 bg-slate-950 border-l border-slate-800 flex-col">
+               <div className="p-3 bg-slate-900/90 font-bold text-xs text-slate-400 border-b border-slate-800">最新戰況</div>
+               <div className="flex-1 p-2 space-y-2 overflow-hidden">
+                 {logs.slice(-8).map((log) => (
+                    <div key={log.id} className="text-xs p-2 bg-slate-900 border border-slate-800 rounded text-slate-300">
+                       <span className="text-slate-500 mr-1 block">{log.time}</span>
+                       {log.action}
+                    </div>
+                 ))}
+               </div>
+            </div>
+          </div>
+        )}
+
+        {currentView === 'roster' && <div className="h-full p-4 max-w-2xl mx-auto"><RosterView /></div>}
+        {currentView === 'boxscore' && <div className="h-full p-4 max-w-2xl mx-auto"><BoxScoreView /></div>}
+        {currentView === 'logs' && <div className="h-full p-4 max-w-2xl mx-auto"><LogsView /></div>}
+      </div>
+      
+      <style>{`
+        .clip-home-plate { clip-path: polygon(50% 0%, 100% 50%, 100% 100%, 0% 100%, 0% 50%); }
+        .shadow-glow-green { box-shadow: 0 0 10px rgba(34,197,94,0.6); }
+        .shadow-glow-yellow { box-shadow: 0 0 10px rgba(234,179,8,0.6); }
+        .shadow-glow-red { box-shadow: 0 0 10px rgba(239,68,68,0.6); }
+        .scrollbar-hide::-webkit-scrollbar { display: none; }
+        .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+      `}</style>
+    </div>
+  );
+}
